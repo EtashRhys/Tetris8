@@ -1,0 +1,226 @@
+import pygame
+import random
+import os  # For getting the working directory
+
+# Initialize pygame
+pygame.init()
+pygame.mixer.init()  # Initialize the mixer for sound
+
+# Print current working directory for debugging
+print("Current working directory:", os.getcwd())
+
+# Game Constants
+WIDTH, HEIGHT = 1000, 2000  # Full-screen portrait mode
+GRID_SIZE = 40
+COLUMNS, ROWS = WIDTH // GRID_SIZE, HEIGHT // GRID_SIZE
+WHITE, BLACK, GRAY = (255, 255, 255), (0, 0, 0), (169, 169, 169)
+
+# Tetrimino shapes
+SHAPES = [
+    [[1, 1, 1, 1]],  # I shape
+    [[1, 1], [1, 1]],  # O shape
+    [[1, 1, 1], [0, 1, 0]],  # T shape
+    [[1, 1, 0], [0, 1, 1]],  # Z shape
+    [[0, 1, 1], [1, 1, 0]],  # S shape
+    [[1, 1, 1], [1, 0, 0]],  # L shape
+    [[1, 1, 1], [0, 0, 1]]   # J shape
+]
+
+COLORS = [(0, 255, 255), (255, 255, 0), (128, 0, 128),
+          (255, 0, 0), (0, 255, 0), (255, 165, 0), (0, 0, 255)]
+
+BUTTON_WIDTH, BUTTON_HEIGHT = 180, 80
+BUTTON_X = WIDTH - BUTTON_WIDTH - 20
+BUTTON_Y = HEIGHT - (BUTTON_HEIGHT * 4) - 40  # Move to lower right
+BUTTON_SPACING = 100
+
+# Define audio file paths (update these based on your device)
+AUDIO_DIR = "/storage/emulated/0/Download/"  # Example directory; adjust as needed
+
+# Load sound effects and music with absolute paths
+try:
+    pygame.mixer.music.load(AUDIO_DIR + "background_music1.mp3")  # Background music
+    move_sound = pygame.mixer.Sound(AUDIO_DIR + "move.wav")  # Sound for moving pieces
+    rotate_sound = pygame.mixer.Sound(AUDIO_DIR + "rotate.wav")  # Sound for rotating pieces
+    clear_sound = pygame.mixer.Sound(AUDIO_DIR + "clear.wav")  # Sound for clearing lines
+    game_over_sound = pygame.mixer.Sound(AUDIO_DIR + "game_over.wav")  # Sound for game over
+except FileNotFoundError as e:
+    print(f"Warning: Some sound files not found in {AUDIO_DIR}. Audio will be silent. Error: {e}")
+    move_sound = rotate_sound = clear_sound = game_over_sound = None  # Silent fallback
+
+def draw_text(text, x, y, size=24, color=WHITE):
+    font = pygame.font.Font(None, size)
+    text_surf = font.render(text, True, color)
+    screen.blit(text_surf, (x, y))
+    return text_surf  # Return the text surface so get_size() can be called
+
+def draw_button(x, y, text):
+    # Create a semi-transparent surface for the button
+    button_surf = pygame.Surface((BUTTON_WIDTH, BUTTON_HEIGHT), pygame.SRCALPHA)
+    transparency = 128  # 50% transparency
+    button_color = (*WHITE, transparency)  # RGBA with alpha for transparency
+    button_surf.fill(button_color)
+    screen.blit(button_surf, (x, y))
+    # Draw the text on top
+    draw_text(text, x + 10, y + 25, 36, BLACK)
+
+def handle_touch_events(game_over):
+    global current_piece
+    if game_over:
+        return False  # No touch events if game is over
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            x, y = event.pos
+            if BUTTON_X <= x <= BUTTON_X + BUTTON_WIDTH:
+                if BUTTON_Y <= y <= BUTTON_Y + BUTTON_HEIGHT:
+                    if not collision(current_piece.shape, current_piece.x - 1, current_piece.y):
+                        current_piece.x -= 1
+                        if move_sound:
+                            move_sound.play()  # Play move sound
+                elif BUTTON_Y + BUTTON_SPACING <= y <= BUTTON_Y + BUTTON_SPACING + BUTTON_HEIGHT:
+                    if not collision(current_piece.shape, current_piece.x + 1, current_piece.y):
+                        current_piece.x += 1
+                        if move_sound:
+                            move_sound.play()  # Play move sound
+                elif BUTTON_Y + BUTTON_SPACING * 2 <= y <= BUTTON_Y + BUTTON_SPACING * 2 + BUTTON_HEIGHT:
+                    current_piece.rotate()
+                    if rotate_sound:
+                        rotate_sound.play()  # Play rotate sound
+                elif BUTTON_Y + BUTTON_SPACING * 3 <= y <= BUTTON_Y + BUTTON_SPACING * 3 + BUTTON_HEIGHT:
+                    # Only move down if no collision
+                    if not collision(current_piece.shape, current_piece.x, current_piece.y + 1):
+                        current_piece.y += 1
+                        if move_sound:
+                            move_sound.play()  # Play move sound
+    return True
+
+class Tetrimino:
+    def __init__(self):
+        self.shape = random.choice(SHAPES)
+        self.color = random.choice(COLORS)
+        self.x, self.y = COLUMNS // 2 - len(self.shape[0]) // 2, 0
+
+    def rotate(self):
+        rotated = [list(row) for row in zip(*self.shape[::-1])]
+        if not collision(rotated, self.x, self.y):
+            self.shape = rotated
+
+def collision(shape, x, y):
+    for i, row in enumerate(shape):
+        for j, cell in enumerate(row):
+            if cell and (x + j < 0 or x + j >= COLUMNS or y + i >= ROWS or grid[y + i][x + j]):
+                return True
+    return False
+
+def clear_lines():
+    global grid, score, speed_increase_factor
+    cleared = [row for row in grid if any(cell == 0 for cell in row)]
+    lines_cleared = ROWS - len(cleared)
+    while len(cleared) < ROWS:
+        cleared.insert(0, [0] * COLUMNS)
+    grid = cleared
+    # Add 200 points bonus for each line cleared
+    score += lines_cleared * 200
+    if clear_sound:
+        clear_sound.play()  # Play clear sound
+    # Increase speed by 1.25x for each line cleared
+    speed_increase_factor *= 1.25 ** lines_cleared
+
+def draw_grid():
+    for y, row in enumerate(grid):
+        for x, cell in enumerate(row):
+            if cell:
+                pygame.draw.rect(screen, cell, (x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+                pygame.draw.rect(screen, GRAY, (x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE), 1)
+
+def main():
+    global grid, current_piece, score, speed_increase_factor
+    grid = [[0] * COLUMNS for _ in range(ROWS)]
+    clock, running, game_over = pygame.time.Clock(), True, False
+    current_piece, drop_timer = Tetrimino(), 0
+    score = 0
+    speed_increase_factor = 1.0  # Initial speed factor
+    drop_speed = 500  # Base drop speed in milliseconds
+
+    # Start background music
+    if pygame.mixer.music.get_busy() == 0 and not game_over:  # Only play if not already playing and game not over
+        pygame.mixer.music.play(-1)  # Loop indefinitely
+
+    while running:
+        screen.fill(BLACK)
+        draw_grid()
+
+        if not game_over:
+            # Draw buttons in lower right corner
+            draw_button(BUTTON_X, BUTTON_Y, "Move Left")
+            draw_button(BUTTON_X, BUTTON_Y + BUTTON_SPACING, "Move Right")
+            draw_button(BUTTON_X, BUTTON_Y + BUTTON_SPACING * 2, "Rotate")
+            draw_button(BUTTON_X, BUTTON_Y + BUTTON_SPACING * 3, "Move Down")
+
+            # Draw score at middle top of screen in white (only during gameplay)
+            score_text = f"Score: {score}"
+            text_surf = draw_text(score_text, 0, 10, 36)  # Get the text surface
+            text_width, text_height = text_surf.get_size()
+            draw_text(score_text, (WIDTH - text_width) // 2, 10, 36)  # Redraw at centered position
+
+            drop_timer += clock.get_rawtime()
+            clock.tick(30)
+            running = handle_touch_events(game_over)
+
+            # Apply speed increase factor to drop speed
+            current_drop_speed = drop_speed / speed_increase_factor
+
+            if drop_timer > current_drop_speed:
+                drop_timer = 0
+                if not collision(current_piece.shape, current_piece.x, current_piece.y + 1):
+                    current_piece.y += 1
+                else:
+                    for i, row in enumerate(current_piece.shape):
+                        for j, cell in enumerate(row):
+                            if cell:
+                                grid[current_piece.y + i][current_piece.x + j] = current_piece.color
+                    # Add 50 points for each piece that lands and fits
+                    score += 50
+                    clear_lines()
+                    current_piece = Tetrimino()
+                    # Check if the new piece collides at its starting position (game over)
+                    if collision(current_piece.shape, current_piece.x, current_piece.y):
+                        game_over = True
+                        if game_over_sound:
+                            game_over_sound.play()  # Play game over sound
+                        pygame.mixer.music.stop()  # Stop background music on game over
+
+            for i, row in enumerate(current_piece.shape):
+                for j, cell in enumerate(row):
+                    if cell:
+                        pygame.draw.rect(screen, current_piece.color, ((current_piece.x + j) * GRID_SIZE, (current_piece.y + i) * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+                        pygame.draw.rect(screen, GRAY, ((current_piece.x + j) * GRID_SIZE, (current_piece.y + i) * GRID_SIZE, GRID_SIZE, GRID_SIZE), 1)
+        else:
+            # Game over screen - only show centered "GAME OVER" and final score, no top text
+            game_over_text = "GAME OVER"
+            final_score_text = f"Final Score: {score}"
+            
+            # Calculate positions for single draw (off-screen to get size)
+            game_over_surf = draw_text(game_over_text, -1000, -1000, 216)  # Off-screen to get size
+            game_over_width, game_over_height = game_over_surf.get_size()
+            game_over_x = (WIDTH - game_over_width) // 2
+            game_over_y = HEIGHT // 4
+            
+            score_surf = draw_text(final_score_text, -1000, -1000, 144)  # Off-screen to get size
+            score_width, score_height = score_surf.get_size()
+            score_x = (WIDTH - score_width) // 2
+            score_y = HEIGHT // 2
+            
+            # Draw each text exactly once, centered in the middle, no top text
+            draw_text(game_over_text, game_over_x, game_over_y, 216)
+            draw_text(final_score_text, score_x, score_y, 144)
+
+        pygame.display.flip()
+
+    pygame.quit()
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Tetris - Pygame Tetris")
+main()
